@@ -450,3 +450,9 @@ $ make
 - [RobWork](http://www.robwork.dk/apidoc/nightly/rw/pageRobworkPrimer.html)
 - [CMake](https://cmake.org/pipermail/cmake/2016-March/062927.html)
 
+## 9. In addition...
+
+The examples shown in the work perfectly, although they require some changes (like paths to fstream files) to make them work in your machine. They will also require RobWork software package to be installed.
+
+- [RobWork](http://www.robwork.dk/apidoc/nightly/rw/page_rw_installation_ubuntu.html). Full installation, including RobWorkStudio, RobWorkSimulation and RobWorkHardware.
+ 
