@@ -44,10 +44,6 @@ Here is an example of header file:
 
 #include <iostream>
 #include <fstream> 
-#include <rw/rw.hpp>
-#include <rwlibs/pathplanners/rrt/RRTPlanner.hpp>
-#include <rwlibs/pathplanners/rrt/RRTQToQPlanner.hpp>
-#include <rwlibs/proximitystrategies/ProximityStrategyFactory.hpp>
 #include <vector>
 #include <math.h> 
 #include <numeric>
@@ -56,7 +52,16 @@ Here is an example of header file:
 #include <boost/foreach.hpp>
 #include <string>
 #include <vector>
+// RobWork headers
+#include <rw/rw.hpp>
+#include <rwlibs/pathplanners/rrt/RRTPlanner.hpp>
+#include <rwlibs/pathplanners/rrt/RRTQToQPlanner.hpp>
+#include <rwlibs/proximitystrategies/ProximityStrategyFactory.hpp>
 #include <rw/trajectory/CubicSplineFactory.hpp>
+// Caros headers
+/*#include <caros/universal_robots.h>
+#include <caros/common.h>
+#include <caros/common_robwork.h>*/
 
 using namespace std;
 using namespace rw::common;
@@ -78,6 +83,8 @@ class AnytimePlanning{
 	bool checkCollisions(const State &state, const CollisionDetector &detector, const Q &q);
 	QPath get_path(double epsilon, State state, rw::math::Q from, rw::math::Q to);
 	QPath get_trajectory(QPath path, rw::math::Q dq_start, rw::math::Q dq_end);
+	QPath return_path(const string filename);
+	//vector<caros::caros_common_msgs::Q> convert_trajectory(QPath path);
 
   private: 
 	/*const string wc_name;
@@ -91,6 +98,7 @@ class AnytimePlanning{
 
 
 }; // AnytimePlanning
+
 ```
 
 ## 4. Source files.
@@ -108,6 +116,8 @@ Here is the .cpp source file corresponding to the example:
 
 #include <AnytimePlanning.h>
 
+#define MAXTIME 100.
+
 using namespace std;
 using namespace rw::common;
 using namespace rw::math;
@@ -120,6 +130,7 @@ using namespace rw::trajectory;
 using namespace rwlibs::pathplanners;
 using namespace rwlibs::proximitystrategies;
 
+
 /* NOTE */
 
 // Remember to initialize rw::kinematics::State state variable in the main().
@@ -128,7 +139,7 @@ using namespace rwlibs::proximitystrategies;
 void AnytimePlanning::Load_WorkCell(const string wc_name, const string dev_name)
 {
 
-	cout << "WorkCell " << wcFile; //<< " and device " << deviceName << endl;
+	cout << "	>> WorkCell: " << wc_name << endl; 
 
 	// if found, loading workcell
 	wc = WorkCellFactory::load(wc_name);
@@ -146,19 +157,21 @@ void AnytimePlanning::Load_WorkCell(const string wc_name, const string dev_name)
 		dev_found = false;
 	} // if
 
+	cout << "	>> Found device: " << dev_name << endl;
 
 }// Load_WorkCell()
 
 
 /* 
 	In the main, after calling Load_Workcell(), use the following breaking condition:
+
 	if(wc_found == false || dev_found == false)
 		{return 0;}
 */
 
 
 // Function that looks for collisions at a given state (Q).
-bool AnytimePlanning::checkCollisions(const State &state, const CollisionDetector &detector, const Q &q) 
+bool AnytimePlanning::checkCollisions(const State &state, const CollisionDetector &detector, const rw::math::Q &q) 
 {
 	State testState;
 	CollisionDetector::QueryResult data;
@@ -196,10 +209,10 @@ QPath AnytimePlanning::get_path(double epsilon, State state, rw::math::Q from, r
 	QMetric::Ptr metric = MetricFactory::makeEuclidean<Q>();
 
 	// Check for collisions at initial configuration.
-	if (!checkCollisions(device, state, detector, from))
+	if (!AnytimePlanning::checkCollisions(state, detector, from))
 		{return 0;}
 	// Check for collisions at final configuration.
-	if (!checkCollisions(device, state, detector, to))
+	if (!AnytimePlanning::checkCollisions(state, detector, to))
 		{return 0;}
 
 	/*if(ext1 == true || ext2 == true)
@@ -233,6 +246,8 @@ QPath AnytimePlanning::get_path(double epsilon, State state, rw::math::Q from, r
 	cout << "Saved to /home/charlie/catkin_ws/src/ROVI2_Object_Avoidance/RWStudio/genfiles/path_original.txt" << endl;
 	cout << endl;
 	
+	pf.close();
+
 	return path;
 
 } // get_path()
@@ -277,10 +292,94 @@ QPath AnytimePlanning::get_trajectory(QPath path, rw::math::Q dq_start, rw::math
 	cout << endl;
 	cout << "Saved to /home/charlie/catkin_ws/src/ROVI2_Object_Avoidance/RWStudio/genfiles/path_interpolated.txt" << endl;
 	cout << endl;
-
+	
+	tf.close();
+	
 	return interpolated_path;
 
 } // get_trajectory()
+
+
+
+// This function reads the path to go back to q_start from the file where it is stored. This path is always constant in the program.
+// No obstacle are added when returning.
+QPath return_path(const string filename)
+{
+
+	ifstream rf;
+	rf.open(filename);
+
+	string lines;	
+	int nl = 0;
+
+	QPath return_path;
+
+	// Getting number of lines in .csv file (number of steps in the path).
+	while( getline(rf, lines) )
+	{
+		nl++;
+	
+	} // while 
+	
+	rf.close();
+
+
+	// Transfering joint values.
+	ifstream rff(filename);
+	float val;
+	vector<float> values;
+	
+	while( rff >> val )
+    	{
+	
+		values.push_back(val);
+    	
+	} // for line
+		
+	rff.close();
+
+	int values_lgth = values.size();
+
+	if (nl == values_lgth)
+	{
+		// Reading data in file into rw::math::Q vector to be stored in QPath.
+		cout << "	>> Reading path:" << endl;
+		int ind = 0;	
+		for (int i = 0; i<nl; i++)
+		{
+			int joint0 = ind;
+			int joint1 = ind+1;
+			int joint2 = ind+2;
+			int joint3 = ind+3;
+			int joint4 = ind+4;
+			int joint5 = ind+5;
+	
+			float q0 = values[joint0];
+			float q1 = values[joint1];
+			float q2 = values[joint2];
+			float q3 = values[joint3];
+			float q4 = values[joint4];
+			float q5 = values[joint5];
+
+			rw::math::Q q_new(6, q0, q1, q2, q3, q4, q5);
+		
+			return_path.push_back(q_new);
+		
+			ind = ind + 6;
+
+		} // for i
+
+	} // if
+	else
+	{
+		cout << "An error occurred while reading the file" << endl;
+		return 0;
+	} // else
+
+	return return_path;
+
+} // return_path()
+
 ```
 
 ## 5. Main.cpp
@@ -288,12 +387,10 @@ QPath AnytimePlanning::get_trajectory(QPath path, rw::math::Q dq_start, rw::math
 In the main program, it is just required to include the header to the newly created class. Then, we can start using the functions that we coded before. Here it is an exampe of how to use it:
 
 ```cpp
+#include <AnytimePlanning.h>
+
 #include <iostream>
 #include <fstream> 
-#include <rw/rw.hpp>
-#include <rwlibs/pathplanners/rrt/RRTPlanner.hpp>
-#include <rwlibs/pathplanners/rrt/RRTQToQPlanner.hpp>
-#include <rwlibs/proximitystrategies/ProximityStrategyFactory.hpp>
 #include <vector>
 #include <math.h> 
 #include <numeric>
@@ -302,70 +399,40 @@ In the main program, it is just required to include the header to the newly crea
 #include <boost/foreach.hpp>
 #include <string>
 #include <vector>
+// RobWork headers
+#include <rw/rw.hpp>
+#include <rwlibs/pathplanners/rrt/RRTPlanner.hpp>
+#include <rwlibs/pathplanners/rrt/RRTQToQPlanner.hpp>
+#include <rwlibs/proximitystrategies/ProximityStrategyFactory.hpp>
 #include <rw/trajectory/CubicSplineFactory.hpp>
-#include <AnytimePlanning.h>
 
 using namespace std;
-using namespace rw::common;
-using namespace rw::math;
-using namespace rw::kinematics;
-using namespace rw::loaders;
-using namespace rw::models;
-using namespace rw::pathplanning;
-using namespace rw::proximity;
-using namespace rw::trajectory;
-using namespace rwlibs::pathplanners;
-using namespace rwlibs::proximitystrategies;
+
+#define MAXTIME 1000.
+
+//---------------------------------------------------------------------------------------------------------
 
 
-#define MAXTIME 100.
 int main(int argc, char** argv) 
 {
-	rw::math::Math::seed();
+	//rw::math::Math::seed();
 	
-	// LOAD WORKCELL
-	const string wc_name = "/home/charlie/catkin_ws/src/ROVI2_Object_Avoidance/WorkCell_scenes/WorkStation_2/WC2_Scene.wc.xml";
-	const string dev_name = "UR1";
-	AnytimePlanning::Load_WorkCell(wc_name, dev_name);
-	if(wc_found == false || dev_found == false)
-		{return 0;}
-
-
-	// INITIAL SETTINGS
-
-	// Initial configuration defined		
-	Q from_deg(6, -59.86, -102.00, -128.35, -44.79, 92.54, 2.04); // deg
-	//Q from_deg(6, -50.85, -108.53, -112.61, -44.85, 84.21, 28.59); // deg
-	Q from = from_deg*(3.14159265359/180); // rad
-	// Goal configuration defined.
-	Q to_deg(6,151.34, -96.45, -107.53, -120.87, 272.71, 2.02); // deg
-	//Q to_deg(6, -99.47, -164.99, -12.12, -104.93, 84.24, 28.59); // deg
-	Q to = to_deg*(3.14159265359/180); // rad
-
+	// LOADING WORKCELL 
+	
 	cout << endl;
-	cout << "	>> | Q_initial | = " << from << endl;
-	cout << "	>> | Q_goal | = " << to << endl;
-	cout << endl;	
+	cout << "C++ SHARED LIBRARIES EXAMPLE" << endl; 
+	cout << endl;
 
-	// Initiate state variable by default.
-	State state = wc->getDefaultState(); 
-	// Get Home position
-	Q Q_home = device->getQ(state);
-	// Set new state to Q_init position.
-	device->setQ(from,state);
+	const string wcFile = "/home/charlie/catkin_ws/src/ROVI2_Object_Avoidance/WorkCell_scenes/WorkStation_2/WC2_Scene.wc.xml"; 
+	const string deviceName = "UR1";
 
-	//---------------------------------------------------------------
-
-	// PLANNING
-
-    double epsilon = 0.5; // RRT's extend parameter.
-	rw::math::Q dq_start = rw::math::Q(6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-	rw::math::Q dq_end = rw::math::Q(6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-	// Calculate path
-	QPath rawPath = AnytimePlanning::get_path(wc, device, epsilon, state, from, to);
-	// Interpolate path
-	QPath smoothPath = AnytimePlanning::get_trajectory(rawPath, dq_start, dq_end);
+	AnytimePlanning plan;
+	plan.Load_WorkCell(wcFile, deviceName);
+	
+	cout << endl;
+	cout << "Finished." << endl;
+	cout << "Exiting." << endl;
+	cout << endl;
 
 	return 0;
 
@@ -401,6 +468,8 @@ SET(ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Use c++11
 SET(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+
 
 # Set the RobWork root (edit in .bashrc if necessary)
 SET(RW_ROOT $ENV{RW_ROOT})
@@ -415,21 +484,21 @@ MESSAGE("-- Build type: " ${CMAKE_BUILD_TYPE})
 # Use RobWork
 SET(RobWork_DIR ${RW_ROOT}/cmake) 
 FIND_PACKAGE(RobWork REQUIRED)
-INCLUDE_DIRECTORIES( ${ROBWORK_INCLUDE_DIRS} )
+INCLUDE_DIRECTORIES( ${ROBWORK_INCLUDE_DIRS} include)
 LINK_DIRECTORIES( ${ROBWORK_LIBRARY_DIRS} )
 
 #--------------------   CREATE SHARED LIBRARIES IN C++ !!!   --------------------
 
 # Include header files
-include_directories(include)
+#include_directories(include)
 
 # Create shared library
-set(LIBRARY_SRC src/AnytimePlanning.cpp)
-add_library(AnytimePlanning SHARED ${LIBRARY_SRC})
+#set(LIBRARY_SRC src/AnytimePlanning.cpp) ${LIBRARY_SRC}
+add_library(AnytimePlanning SHARED src/AnytimePlanning)
 
 # The shared library to build:
-ADD_EXECUTABLE(planner src/main.cpp ${SrcFiles})
-TARGET_LINK_LIBRARIES(planner ${ROBWORK_LIBRARIES} AnytimePlanning)
+ADD_EXECUTABLE(planner src/main.cpp)
+TARGET_LINK_LIBRARIES(planner AnytimePlanning ${ROBWORK_LIBRARIES})
 
 #--------------------   CREATE SHARED LIBRARIES IN C++ !!!   --------------------
 
